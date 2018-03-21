@@ -6,7 +6,7 @@ import styles from './index.less';
 /* eslint react/no-did-mount-set-state: 0 */
 /* eslint no-param-reassign: 0 */
 
-const isSupportLineClamp = (document.body.style.webkitLineClamp !== undefined);
+const isSupportLineClamp = document.body.style.webkitLineClamp !== undefined;
 
 const EllipsisText = ({ text, length, tooltip, ...other }) => {
   if (typeof text !== 'string') {
@@ -20,16 +20,24 @@ const EllipsisText = ({ text, length, tooltip, ...other }) => {
   if (length - tail.length <= 0) {
     displayText = '';
   } else {
-    displayText = text.slice(0, (length - tail.length));
+    displayText = text.slice(0, length - tail.length);
   }
 
   if (tooltip) {
-    return <Tooltip title={text}><span>{displayText}{tail}</span></Tooltip>;
+    return (
+      <Tooltip overlayStyle={{ wordBreak: 'break-all' }} title={text}>
+        <span>
+          {displayText}
+          {tail}
+        </span>
+      </Tooltip>
+    );
   }
 
   return (
     <span {...other}>
-      {displayText}{tail}
+      {displayText}
+      {tail}
     </span>
   );
 };
@@ -38,7 +46,7 @@ export default class Ellipsis extends Component {
   state = {
     text: '',
     targetCount: 0,
-  }
+  };
 
   componentDidMount() {
     if (this.node) {
@@ -56,8 +64,19 @@ export default class Ellipsis extends Component {
     const { lines } = this.props;
     if (lines && !isSupportLineClamp) {
       const text = this.shadowChildren.innerText;
-      const targetHeight = this.root.offsetHeight;
+      const lineHeight = parseInt(getComputedStyle(this.root).lineHeight, 10);
+      const targetHeight = lines * lineHeight;
+      this.content.style.height = `${targetHeight}px`;
+      const totalHeight = this.shadowChildren.offsetHeight;
       const shadowNode = this.shadow.firstChild;
+
+      if (totalHeight <= targetHeight) {
+        this.setState({
+          text,
+          targetCount: text.length,
+        });
+        return;
+      }
 
       // bisection
       const len = text.length;
@@ -70,7 +89,7 @@ export default class Ellipsis extends Component {
         targetCount: count,
       });
     }
-  }
+  };
 
   bisection = (th, m, b, e, text, shadowNode) => {
     const suffix = '...';
@@ -80,10 +99,10 @@ export default class Ellipsis extends Component {
     shadowNode.innerHTML = text.substring(0, mid) + suffix;
     let sh = shadowNode.offsetHeight;
 
-    if (sh < th) {
+    if (sh <= th) {
       shadowNode.innerHTML = text.substring(0, mid + 1) + suffix;
       sh = shadowNode.offsetHeight;
-      if (sh >= th) {
+      if (sh > th) {
         return mid;
       } else {
         begin = mid;
@@ -97,94 +116,108 @@ export default class Ellipsis extends Component {
       shadowNode.innerHTML = text.substring(0, mid - 1) + suffix;
       sh = shadowNode.offsetHeight;
       if (sh <= th) {
-        return mid;
+        return mid - 1;
       } else {
         end = mid;
         mid = Math.floor((end - begin) / 2) + begin;
         return this.bisection(th, mid, begin, end, text, shadowNode);
       }
     }
-  }
+  };
 
   handleRoot = (n) => {
     this.root = n;
-  }
+  };
+
+  handleContent = (n) => {
+    this.content = n;
+  };
 
   handleNode = (n) => {
     this.node = n;
-  }
+  };
 
   handleShadow = (n) => {
     this.shadow = n;
-  }
+  };
 
   handleShadowChildren = (n) => {
     this.shadowChildren = n;
-  }
+  };
 
   render() {
     const { text, targetCount } = this.state;
-    const {
-      children,
-      lines,
-      length,
-      className,
-      tooltip,
-      ...restProps
-    } = this.props;
+    const { children, lines, length, className, tooltip, ...restProps } = this.props;
 
     const cls = classNames(styles.ellipsis, className, {
-      [styles.lines]: (lines && !isSupportLineClamp),
-      [styles.lineClamp]: (lines && isSupportLineClamp),
+      [styles.lines]: lines && !isSupportLineClamp,
+      [styles.lineClamp]: lines && isSupportLineClamp,
     });
 
     if (!lines && !length) {
-      return (<span className={cls} {...restProps}>{children}</span>);
+      return (
+        <span className={cls} {...restProps}>
+          {children}
+        </span>
+      );
     }
 
     // length
     if (!lines) {
-      return (<EllipsisText className={cls} length={length} text={children || ''} tooltip={tooltip} {...restProps} />);
+      return (
+        <EllipsisText
+          className={cls}
+          length={length}
+          text={children || ''}
+          tooltip={tooltip}
+          {...restProps}
+        />
+      );
     }
 
     const id = `antd-pro-ellipsis-${`${new Date().getTime()}${Math.floor(Math.random() * 100)}`}`;
 
     // support document.body.style.webkitLineClamp
     if (isSupportLineClamp) {
-      const style = `#${id}{-webkit-line-clamp:${lines};}`;
+      const style = `#${id}{-webkit-line-clamp:${lines};-webkit-box-orient: vertical;}`;
       return (
         <div id={id} className={cls} {...restProps}>
           <style>{style}</style>
-          {
-            tooltip ? (<Tooltip title={text}>{children}</Tooltip>) : children
-          }
-        </div>);
+          {tooltip ? (
+            <Tooltip overlayStyle={{ wordBreak: 'break-all' }} title={children}>
+              {children}
+            </Tooltip>
+          ) : (
+            children
+          )}
+        </div>
+      );
     }
 
     const childNode = (
       <span ref={this.handleNode}>
-        {
-          (targetCount > 0) && text.substring(0, targetCount)
-        }
-        {
-          (targetCount > 0) && (targetCount < text.length) && '...'
-        }
+        {targetCount > 0 && text.substring(0, targetCount)}
+        {targetCount > 0 && targetCount < text.length && '...'}
       </span>
     );
 
     return (
-      <div
-        {...restProps}
-        ref={this.handleRoot}
-        className={cls}
-      >
-        {
-          tooltip ? (
-            <Tooltip title={text}>{childNode}</Tooltip>
-          ) : childNode
-        }
-        <div className={styles.shadow} ref={this.handleShadowChildren}>{children}</div>
-        <div className={styles.shadow} ref={this.handleShadow}><span>{text}</span></div>
+      <div {...restProps} ref={this.handleRoot} className={cls}>
+        <div ref={this.handleContent}>
+          {tooltip ? (
+            <Tooltip overlayStyle={{ wordBreak: 'break-all' }} title={text}>
+              {childNode}
+            </Tooltip>
+          ) : (
+            childNode
+          )}
+          <div className={styles.shadow} ref={this.handleShadowChildren}>
+            {children}
+          </div>
+          <div className={styles.shadow} ref={this.handleShadow}>
+            <span>{text}</span>
+          </div>
+        </div>
       </div>
     );
   }
